@@ -159,15 +159,15 @@ func handleRequests(mgr *ResourceManager, rsrc *resource) {
 		req := <-mgr.ch
 		switch req.RequestType {
 		case REQ_LOAD:
-			rsrc, err = newResource(req.Key.([]string), mgr.useMaxLen)
-			log.Infof("Resource has been loaded. (SN: %v)", rsrc.currentSN)
+			innerrsrc, err = newResource(req.Key.([]string), mgr.useMaxLen)
+			log.Infof("Resource has been loaded. (SN: %v)", innerrsrc.currentSN)
 			req.Response <- &Response{Error: err}
 		case REQ_CURRENT_SERIAL:
-			req.Response <- &Response{Data: rsrc.currentSN}
+			req.Response <- &Response{Data: innerrsrc.currentSN}
 		case REQ_RELOAD:
 			serialNotify := false
 			nextSN := uint32(time.Now().Unix())
-			rsrc, err = rsrc.loadAs(nextSN)
+			innerrsrc, err = innerrsrc.loadAs(nextSN)
 			if err != nil {
 				req.Response <- &Response{Error: err}
 				log.Errorf("Could not load: %v", err)
@@ -177,7 +177,7 @@ func handleRequests(mgr *ResourceManager, rsrc *resource) {
 			for _, rf := range []bgp.RouteFamily{bgp.RF_IPv4_UC, bgp.RF_IPv6_UC} {
 				log.Infof("%v current table size is %v, next table size is %v.", rf, rsrc.table[rsrc.currentSN][rf].Len(), rsrc.table[nextSN][rf].Len())
 			}
-			if eql := reflect.DeepEqual(rsrc.table[rsrc.currentSN], rsrc.table[nextSN]); !eql {
+			if eql := reflect.DeepEqual(innerrsrc.table[innerrsrc.currentSN], innerrsrc.table[nextSN]); !eql {
 				log.Infof("Resource has been updated. (SN: %v -> %v)", rsrc.currentSN, nextSN)
 				rsrc.currentSN = nextSN
 				serialNotify = true
@@ -185,7 +185,7 @@ func handleRequests(mgr *ResourceManager, rsrc *resource) {
 				delete(rsrc.table, nextSN)
 			}
 
-			for k, _ := range rsrc.table {
+			for k, _ := range innerrsrc.table {
 				if rsrc.currentSN != k {
 					t := time.Now()
 					if int64(k) < t.Add(-24*time.Hour).Unix() {
@@ -205,8 +205,8 @@ func handleRequests(mgr *ResourceManager, rsrc *resource) {
 				bgp.RF_IPv6_UC: map[uint8][]*FakeROA{},
 			}
 
-			lists[bgp.RF_IPv4_UC][rtr.ANNOUNCEMENT] = fakeROALists(rsrc, treeToSet(rsrc.table[rsrc.currentSN][bgp.RF_IPv4_UC]))
-			lists[bgp.RF_IPv6_UC][rtr.ANNOUNCEMENT] = fakeROALists(rsrc, treeToSet(rsrc.table[rsrc.currentSN][bgp.RF_IPv6_UC]))
+			lists[bgp.RF_IPv4_UC][rtr.ANNOUNCEMENT] = fakeROALists(innerrsrc, treeToSet(innerrsrc.table[innerrsrc.currentSN][bgp.RF_IPv4_UC]))
+			lists[bgp.RF_IPv6_UC][rtr.ANNOUNCEMENT] = fakeROALists(innerrsrc, treeToSet(innerrsrc.table[innerrsrc.currentSN][bgp.RF_IPv6_UC]))
 
 			req.Response <- &Response{Data: lists}
 		case REQ_DELTA_LIST:
@@ -216,18 +216,18 @@ func handleRequests(mgr *ResourceManager, rsrc *resource) {
 				bgp.RF_IPv6_UC: map[uint8][]*FakeROA{},
 			}
 
-			lists[bgp.RF_IPv4_UC][rtr.ANNOUNCEMENT] = fakeROALists(rsrc, treeToSet(rsrc.table[rsrc.currentSN][bgp.RF_IPv4_UC]).Difference(treeToSet(rsrc.table[k][bgp.RF_IPv4_UC])))
-			lists[bgp.RF_IPv6_UC][rtr.ANNOUNCEMENT] = fakeROALists(rsrc, treeToSet(rsrc.table[rsrc.currentSN][bgp.RF_IPv6_UC]).Difference(treeToSet(rsrc.table[k][bgp.RF_IPv6_UC])))
-			lists[bgp.RF_IPv4_UC][rtr.WITHDRAWAL] = fakeROALists(rsrc, treeToSet(rsrc.table[k][bgp.RF_IPv4_UC]).Difference(treeToSet(rsrc.table[rsrc.currentSN][bgp.RF_IPv4_UC])))
-			lists[bgp.RF_IPv6_UC][rtr.WITHDRAWAL] = fakeROALists(rsrc, treeToSet(rsrc.table[k][bgp.RF_IPv6_UC]).Difference(treeToSet(rsrc.table[rsrc.currentSN][bgp.RF_IPv6_UC])))
+			lists[bgp.RF_IPv4_UC][rtr.ANNOUNCEMENT] = fakeROALists(innerrsrc, treeToSet(innerrsrc.table[innerrsrc.currentSN][bgp.RF_IPv4_UC]).Difference(treeToSet(innerrsrc.table[k][bgp.RF_IPv4_UC])))
+			lists[bgp.RF_IPv6_UC][rtr.ANNOUNCEMENT] = fakeROALists(innerrsrc, treeToSet(innerrsrc.table[innerrsrc.currentSN][bgp.RF_IPv6_UC]).Difference(treeToSet(innerrsrc.table[k][bgp.RF_IPv6_UC])))
+			lists[bgp.RF_IPv4_UC][rtr.WITHDRAWAL] = fakeROALists(innerrsrc, treeToSet(innerrsrc.table[k][bgp.RF_IPv4_UC]).Difference(treeToSet(innerrsrc.table[innerrsrc.currentSN][bgp.RF_IPv4_UC])))
+			lists[bgp.RF_IPv6_UC][rtr.WITHDRAWAL] = fakeROALists(innerrsrc, treeToSet(innerrsrc.table[k][bgp.RF_IPv6_UC]).Difference(treeToSet(innerrsrc.table[innerrsrc.currentSN][bgp.RF_IPv6_UC])))
 
 			req.Response <- &Response{Data: lists}
 		case REQ_IF_SERIAL_EXISTS:
-			_, ok := rsrc.table[req.Key.(uint32)]
+			_, ok := innerrsrc.table[req.Key.(uint32)]
 			req.Response <- &Response{Data: ok}
 		case REQ_BEGIN_TRANSACTION:
 			transaction := &ResourceManager{ch: req.transaction}
-			handleRequests(transaction, rsrc)
+			handleRequests(transaction, innerrsrc)
 		case REQ_END_TRANSACTION:
 			return
 		}
